@@ -117,11 +117,8 @@ func isInNet(call otto.FunctionCall) otto.Value {
 	host := call.Argument(0).String()
 	pattern := call.Argument(1).String()
 	mask := call.Argument(2).String()
-	buf := net.ParseIP(mask).To4()
-	m := net.IPv4Mask(buf[0], buf[1], buf[2], buf[3])
-	maskedIP := resolve(host).Mask(m)
-	maskedPattern := net.ParseIP(pattern).To4().Mask(m)
-	return toValue(maskedIP.Equal(maskedPattern))
+	ipNet := net.IPNet{IP: net.ParseIP(pattern), Mask: net.IPMask(net.ParseIP(mask))}
+	return toValue(ipNet.Contains(resolve(host)))
 }
 
 func dnsResolve(call otto.FunctionCall) otto.Value {
