@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+var testKeychain *keychain.Keychain
+
 func init() {
 	getCredentialsFromKeyring = getCredentialsFromNoMAD
 }
@@ -23,6 +25,9 @@ func readDefaultForNoMAD(key string) (string, bool) {
 func readPasswordFromKeychain(userPrincipal string) string {
 	// https://nomad.menu/help/keychain-usage/
 	query := keychain.NewItem()
+	if testKeychain != nil {
+		query.SetMatchSearchList(*testKeychain)
+	}
 	query.SetSecClass(keychain.SecClassGenericPassword)
 	query.SetAccount(userPrincipal)
 	query.SetReturnAttributes(true)
