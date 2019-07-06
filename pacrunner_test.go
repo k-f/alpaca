@@ -199,25 +199,71 @@ func TestConvertAddr(t *testing.T) {
 }
 
 func TestMyIpAddress(t *testing.T) {
-	vm := otto.New()
-	require.Nil(t, vm.Set("myIpAddress", myIpAddress))
-	value, err := vm.Call("myIpAddress", nil)
-	require.Nil(t, err)
-	output, err := value.ToString()
-	require.Nil(t, err)
-	// Check it's a valid IPv4 address.
-	assert.NotNil(t, net.ParseIP(output).To4())
-	// Check that it's our IP address. Technically there's a race condition here (since both
-	// myIpAddress and this function will call net.InterfaceAddrs() separately), but this is
-	// only going to cause flakiness if the network changes during the test, which is unlikely.
-	addrs, err := net.InterfaceAddrs()
-	require.Nil(t, err)
-	for _, addr := range addrs {
-		if strings.HasPrefix(addr.String(), output) {
-			return
-		}
+	tests := []struct {
+		name                     string
+		ipAddrs                  []net.IPAddr
+		expectedForMyIpAddress   string
+		expectedForMyIpAddressEx string
+	}{
+		{
+			"IPv4+IPv6",
+			[]net.IPAddr{
+				//TODO: these shoudl ahve cidr ranges on them
+				net.IPAddr{IP: net.ParseIP("127.0.0.1")},   // IPv4 loopback
+				net.IPAddr{IP: net.ParseIP("::1")},         // IPv6 loopback
+				net.IPAddr{IP: net.ParseIP("169.254.1.1")}, // IPv4 link-local
+				net.IPAddr{IP: net.ParseIP("fe80::1")},     // IPv6 link-local
+				net.IPAddr{IP: net.ParseIP("2001:db8::")},
+				net.IPAddr{IP: net.ParseIP("192.0.2.1")},
+				net.IPAddr{IP: net.ParseIP("198.51.100.1")},
+				net.IPAddr{IP: net.ParseIP("203.0.113.1")},
+			},
+			"192.0.2.1",
+			"2001:db8::;192.0.2.1;198.51.100.1;203.0.113.1",
+		}, {
+			"IPv6-only",
+			[]net.IPAddr{
+				net.IPAddr{IP: net.ParseIP("::1")},
+				net.IPAddr{IP: net.ParseIP("2001:db8::")},
+			},
+			"127.0.0.1",
+			"2001:db8::",
+		}, {
+			"loopback-only",
+			[]net.IPAddr{
+				net.IPAddr{IP: net.ParseIP("127.0.0.1")},
+				net.IPAddr{IP: net.ParseIP("::1")},
+			},
+			"127.0.0.1",
+			"",
+		},
 	}
-	t.Fail()
+
+	for _, test := range tests {
+		addrs := make([]net.Addr, len(test.ipAddrs))
+		for i, ipAddr := range test.ipAddrs {
+			addrs[i] = &ipAddr
+		}
+		getAddrs = func() ([]net.Addr, error) { return addrs, nil }
+		t.Run("myIpAddress "+test.name, func(t *testing.T) {
+			vm := otto.New()
+			require.Nil(t, vm.Set("myIpAddress", myIpAddress))
+			value, err := vm.Call("myIpAddress", nil)
+			require.Nil(t, err)
+			output, err := value.ToString()
+			require.Nil(t, err)
+			assert.Equal(t, test.expectedForMyIpAddress, output)
+		})
+		t.Run("myIpAddressEx "+test.name, func(t *testing.T) {
+			vm := otto.New()
+			require.Nil(t, vm.Set("myIpAddressEx", myIpAddressEx))
+			value, err := vm.Call("myIpAddressEx", nil)
+			require.Nil(t, err)
+			output, err := value.ToString()
+			require.Nil(t, err)
+			assert.Equal(t, test.expectedForMyIpAddressEx, output)
+		})
+	}
 }
 
 func TestDnsDomainLevels(t *testing.T) {

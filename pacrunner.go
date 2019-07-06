@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/gobwas/glob"
 	"github.com/robertkrimen/otto"
 	"io"
@@ -19,6 +20,8 @@ type PACRunner struct {
 	vm  *otto.Otto
 	mux sync.Mutex
 }
+
+var getAddrs = net.InterfaceAddrs
 
 func NewPACRunner(r io.Reader) (*PACRunner, error) {
 	vm := otto.New()
@@ -155,29 +158,36 @@ func convertAddr(call otto.FunctionCall) otto.Value {
 }
 
 func myIpAddress(call otto.FunctionCall) otto.Value {
-	// When the host has multiple IPs, Chrome seems to go to some length to find the best one
-	// (see https://cs.chromium.org/chromium/src/net/proxy_resolution/pac_library.cc?g=0&l=22),
-	// but we'll just return the first non-loopback IPv4 address that we find (or "127.0.0.1" if
-	// there are none) and hope this is good enough.
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return otto.UndefinedValue()
-	}
+	// When the host has multiple IPs, just return the first non-loopback/link-local IPv4
+	// address that we find (or "127.0.0.1" if there are none) and hope this is good enough.
+	addrs, _ := getAddrs()
 	for _, addr := range addrs {
-		s := addr.String()
-		// Remove the first rune that is not either a digit or a dot, as well as anything
-		// that follows it. This turns strings like "192.0.2.1:25" and "192.168.1.6/24" into
-		// parsable IPv4 addresses.
-		if i := strings.IndexFunc(s, func(r rune) bool {
-			return !strings.ContainsRune("0123456789.", r)
-		}); i != -1 {
-			s = s[0:i]
-		}
-		if ipv4 := net.ParseIP(s).To4(); ipv4 != nil && !ipv4.IsLoopback() {
+		ip, _, err := net.ParseCIDR(addr.String())
+		fmt.Printf("%s: %v\n", ip.String(), ip.IsLoopback())
+		if err != nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			continue
+		} else if ipv4 := ip.To4(); ipv4 != nil {
 			return toValue(ipv4.String())
 		}
 	}
 	return toValue("127.0.0.1")
+}
+
+func myIpAddressEx(call otto.FunctionCall) otto.Value {
+	addrs, _ := getAddrs()
+	var b strings.Builder
+	for _, addr := range addrs {
+		ip, _, err := net.ParseCIDR(addr.String())
+		if err != nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		b.WriteRune(';')
+		b.WriteString(ip.String())
+	}
+	if b.Len() == 0 {
+		return toValue("")
+	}
+	return toValue(b.String()[1:])
 }
 
 func dnsDomainLevels(call otto.FunctionCall) otto.Value {
