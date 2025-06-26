@@ -1,127 +1,122 @@
-# Alpaca
+# Secure LLM Agent Proxy
 
-![Latest Tag][2] ![GitHub Workflow Status][3] ![GitHub Releases][4]
+## Overview
 
-Alpaca is a local HTTP proxy for command-line tools. It supports proxy
-auto-configuration (PAC) files and NTLM authentication.
+The Secure LLM Agent Proxy is a desktop application designed to mitigate the security risks associated with using Large Language Model (LLM) agents on corporate devices. It gives users granular, real-time control over the LLM agent's network access by intercepting HTTP/HTTPS requests, checking them against a configurable set of rules, and prompting the user for a decision on any untrusted destination.
 
-## Install using Homebrew
+This project is built by extending the [SAMUONG/alpaca](https://github.com/SAMUONG/alpaca) Go proxy and uses the [Fyne](https://fyne.io/) framework for its cross-platform user interface.
 
-If you're using macOS and use [Homebrew](https://brew.sh/), you can install
-using:
+## Features
 
-```sh
-$ brew tap samuong/alpaca
-$ brew install samuong/alpaca/alpaca
+*   **HTTP/HTTPS Proxy**: Acts as a local proxy server that other applications can be configured to use.
+*   **Rule-Based Filtering**: Utilizes `allow_always` and `deny_always` lists in a configuration file (`config.yaml`) to automatically permit or block requests. Supports wildcard (`*`) and path-based matching (e.g., `*.example.com`, `example.com/path/*`).
+*   **Interactive User Prompts**: For requests not matching any predefined rule, a clear UI prompt allows the user to:
+    *   **Allow Once**: Permit the specific request.
+    *   **Deny Once**: Block the specific request.
+    *   **Allow Always**: Permit the request and add a user-specified rule (e.g., domain or path) to the `allow_always` list.
+    *   **Deny Always**: Block the request and add its domain to the `deny_always` list.
+*   **User Configuration**: Rules and settings are managed via a `config.yaml` file stored in the standard user application configuration directory.
+*   **Upstream Proxy Support**: Can forward all allowed traffic to a designated upstream corporate proxy (e.g., Zscaler).
+*   **System Tray Management**: Provides a system tray/menu bar icon for quick access to:
+    *   Open Config File: Opens `config.yaml` in the default text editor.
+    *   Quit: Shuts down the proxy application.
+*   **Cross-Platform**: Designed for macOS and Windows. Linux users may also find it functional, though system tray behavior can vary by desktop environment.
+
+## How It Works
+
+1.  Applications (e.g., LLM agents) are configured to send their network traffic through this proxy.
+2.  The proxy intercepts each outgoing HTTP/HTTPS request.
+3.  The request URL is checked against the `deny_always` list first. If a match is found, the request is blocked.
+4.  If not denied, the URL is checked against the `allow_always` list. If a match is found, the request is permitted.
+5.  If no rule matches, a UI prompt is displayed to the user.
+6.  Based on the user's decision, the request is allowed or blocked. If "Allow Always" or "Deny Always" is chosen, the `config.yaml` file and in-memory rules are updated.
+7.  Allowed requests are then forwarded to their destination, potentially via a configured upstream proxy.
+
+## Installation & Build
+
+### Prerequisites
+
+*   Go (version 1.18 or newer recommended)
+*   Standard C compiler (required by Fyne for some platforms/features, usually pre-installed on macOS/Linux, may need setup on Windows e.g., via MinGW)
+
+### Build Command
+
+1.  Clone the repository (or ensure you have the source code).
+2.  Navigate to the project directory.
+3.  Run the build command:
+    ```bash
+    go build .
+    ```
+    This will produce an executable file (e.g., `secure-llm-agent-proxy` or `secure-llm-agent-proxy.exe`).
+
+### Packaging (Optional)
+
+For a more native app experience (e.g., `.app` bundle on macOS):
+
+1.  Install the Fyne command-line tool:
+    ```bash
+    go install fyne.io/fyne/v2/cmd/fyne@latest
+    ```
+2.  Run the packaging command (example for macOS):
+    ```bash
+    fyne package -os darwin -icon YourIcon.png
+    ```
+    Replace `YourIcon.png` with the path to an icon file.
+
+#### macOS Specifics for Backgrounding:
+
+To make the macOS `.app` bundle run as a background agent (no Dock icon):
+1.  After running `fyne package`, locate the generated `.app` bundle (e.g., `SecureLLMAgentProxy.app`).
+2.  Open/Edit the `Contents/Info.plist` file within the bundle.
+3.  Add or ensure the following key-value pair exists:
+    ```xml
+    <key>LSUIElement</key>
+    <string>1</string>
+    ```
+
+## Configuration
+
+The proxy is configured using a `config.yaml` file located in your user's application configuration directory. The application will create a default one on first run if it doesn't exist.
+
+*   **macOS**: `~/Library/Application Support/SecureLLMAgentProxy/config.yaml`
+*   **Linux**: `~/.config/SecureLLMAgentProxy/config.yaml` (or follows XDG Base Directory Specification)
+*   **Windows**: `%APPDATA%\SecureLLMAgentProxy\config.yaml` (e.g., `C:\Users\YourUser\AppData\Roaming\SecureLLMAgentProxy\config.yaml`)
+
+You can also use the "Open Config File" option from the system tray menu to locate and open it.
+
+### `config.yaml` Structure:
+
+```yaml
+allow_always:
+  - "*.trusted.com"        # Allows subdomains of trusted.com
+  - "internaltool.net/api/*" # Allows specific paths on internaltool.net
+  - "exactdomain.com"      # Allows only exactdomain.com (and its paths if not further restricted by pattern)
+deny_always:
+  - "ads.doubleclick.net"
+  - "*.annoyingtracker.com"
+upstream_proxy: "http://your-corporate-proxy.example.com:8080" # Optional: URL of your corporate proxy
 ```
 
-Launch Alpaca by running `alpaca`, or by using `brew services start alpaca`.
+### Rule Syntax:
 
-## Install using Go
-
-If you've got the [Go](https://golang.org/cmd/go/) tool installed, you can
-install using:
-
-```sh
-$ go install github.com/samuong/alpaca/v2@latest
-```
-
-## Download Binary
-
-Alpaca can be downloaded from the [GitHub releases page][1].
-
-## Install from distribution packages
-
-[![Packaging status](https://repology.org/badge/vertical-allrepos/alpaca-proxy.svg)](https://repology.org/project/alpaca-proxy/versions)
+Rules use `path.Match` style globbing:
+*   `*`: Matches any sequence of characters except `/`. For example, `*.example.com` matches `api.example.com` but not `example.com`. `example.com/*` matches `example.com/foo`.
+*   `?`: Matches any single character except `/`.
+*   To match a domain and all its subdomains and paths, you might use rules like `example.com` (for the domain itself) and `*.example.com` (for subdomains). If you want to allow all paths under `example.com`, use `example.com/*`.
+*   The matching logic first attempts to match the pattern against the full `host:port/path`. If the pattern does not contain a `/`, it also attempts to match against just the `host:port`.
 
 ## Usage
 
-Start Alpaca by running the `alpaca` binary.
+1.  Run the compiled executable (e.g., `./secure-llm-agent-proxy` or double-click the `.exe` / `.app`).
+2.  Configure your LLM agent or other target application to use this proxy for HTTP and HTTPS traffic. The proxy listens by default on:
+    *   **Address**: `localhost`
+    *   **Port**: `3128`
+    (These can be changed using the `-l <address>` and `-p <port>` command-line flags inherited from Alpaca.)
+3.  When the configured application makes a network request to an untrusted URL, a dialog prompt will appear.
+4.  Choose one of the four options: "Allow Once", "Deny Once", "Allow Always...", or "Deny Always".
+5.  Use the system tray icon to open the configuration file for manual rule editing or to quit the application.
 
-If the proxy server requires valid authentication credentials, you can provide them by means of:
+## License
 
-- the shell prompt, if `-d` is passed,
-- the shell environment, if `NTLM_CREDENTIALS` is set,
-- the system keyring (macOS, Windows and Linux/GNOME supported), if none of the above applies.
-
-Otherwise, the authentication with proxy will be simply ignored.
-
-### Shell Prompt
-
-You can also supply your domain and username (via command-line flags) and a
-password (via a prompt):
-
-```sh
-$ alpaca -d MYDOMAIN -u me
-Password (for MYDOMAIN\me):
-```
-
-### Non-interactive launch
-
-If you want to use Alpaca without any interactive password prompt, you can store
-your NTLM credentials (domain, username and MD4-hashed password) in an
-environment variable called `$NTLM_CREDENTIALS`. You can use the `-H` flag to
-generate this value:
-
-```sh
-$ ./alpaca -d MYDOMAIN -u me -H
-# Add this to your ~/.profile (or equivalent) and restart your shell
-NTLM_CREDENTIALS="me@MYDOMAIN:823893adfad2cda6e1a414f3ebdf58f7"; export NTLM_CREDENTIALS
-```
-
-Note that this hash is *not* cryptographically secure; it's just meant to stop
-people from being able to read your password with a quick glance.
-
-Once you've set this environment variable, you can start Alpaca by running
-`./alpaca`.
-
-### Keyring
-
-On macOS, if you use [NoMAD](https://nomad.menu/products/#nomad) and have configured it
-to [use the keychain](https://nomad.menu/help/keychain-usage/), Alpaca will use
-these credentials to authenticate to any NTLM challenge from your proxies.
-
-On Windows and Linux/GNOME you will need some extra work to persist the username (`NTLM_USERNAME`) and the domain (`NTLM_DOMAIN`) 
-in the shell environoment, while the password in the system keyring. Alpaca will read the password from the system keyring 
-(in the `login` collection) using the attributes `service=alpaca` and `username=$NTLM_USERNAME`.
-
-To store the password in the GNOME keyring, do the following:
-```bash
-$ export NTLM_USERNAME=<your-username-here>
-$ export NTLM_DOMAIN=<your-domain-here>
-$ sudo apt install libsecret-tools
-$ secret-tool store -c login -l "NTLM credentials" "service" "alpaca" "username" $NTLM_USERNAME
-Password:
-# Type your password, then run
-$ alpaca
-```
-
-On macOS and Linux/GNOME systems, Alpaca uses the PAC URL from your system settings.
-If you'd like to override this, or if Alpaca fails to detect your settings, you
-can set this manually using the `-C` flag.
-
----
-
-### Proxy
-
-You also need to configure your tools to send requests via Alpaca. Usually this
-will require setting the `http_proxy` and `https_proxy` environment variables:
-
-```sh
-$ export http_proxy=http://localhost:3128
-$ export https_proxy=http://localhost:3128
-$ curl -s https://raw.githubusercontent.com/samuong/alpaca/master/README.md
-# Alpaca
-...
-```
-
-When moving from, say, a corporate network to a public WiFi network (or
-vice-versa), the proxies listed in the PAC script might become unreachable.
-When this happens, Alpaca will temporarily bypass the parent proxy and send
-requests directly, so there's no need to manually unset/re-set `http_proxy` and
-`https_proxy` as you move between networks.
-
-[1]: https://github.com/samuong/alpaca/releases
-[2]: https://img.shields.io/github/v/tag/samuong/alpaca.svg?logo=github&label=latest
-[3]: https://img.shields.io/github/actions/workflow/status/samuong/alpaca/ci.yml?branch=master
-[4]: https://img.shields.io/github/downloads/samuong/alpaca/latest/total
+This project is licensed under the Apache License 2.0. See the `LICENSE` file for details.
+(Assumes a LICENSE file from Alpaca or a new one is present)
